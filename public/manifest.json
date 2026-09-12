@@ -1,0 +1,37 @@
+{
+  "id": "/",
+  "name": "Salon Muse",
+  "short_name": "Salon Muse",
+  "description": "Réservez vos soins en ligne",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fdfbf7",
+  "theme_color": "#c9a87c",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/Muse192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Muse512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Muse192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/Muse512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
