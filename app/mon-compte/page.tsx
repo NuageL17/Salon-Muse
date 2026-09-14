@@ -15,6 +15,7 @@ type RdvAvecPrestation = {
   statut: string;
   prix_applique: number | null;
   notes: string | null;
+  reference_photo_url: string | null;
   travailleuse: {
     prenom: string | null;
     nom: string | null;
@@ -72,7 +73,7 @@ export default async function MonComptePage() {
   const { data: rdvs } = await admin
     .from("rendez_vous")
     .select(
-      "id, debut, fin, statut, prix_applique, notes, travailleuse:profiles!rendez_vous_praticienne_id_fkey (prenom, nom), prestations (nom, categorie, duree_min)"
+      "id, debut, fin, statut, prix_applique, notes, reference_photo_url, travailleuse:profiles!rendez_vous_praticienne_id_fkey (prenom, nom), prestations (nom, categorie, duree_min)"
     )
     .eq("cliente_id", user.id)
     .in("statut", ["en_attente", "confirme", "en_cours"])
@@ -225,6 +226,20 @@ export default async function MonComptePage() {
                     >
                       « {rdv.notes} »
                     </p>
+                  )}
+                  {rdv.reference_photo_url && (
+                    <a
+                      href={rdv.reference_photo_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block mt-3"
+                    >
+                      <img
+                        src={rdv.reference_photo_url}
+                        alt="Référence"
+                        className="w-20 h-20 object-cover rounded-xl border border-neutral-200 hover:opacity-80 transition"
+                      />
+                    </a>
                   )}
                   <AnnulerRdvButton rdvId={rdv.id} />
                 </div>

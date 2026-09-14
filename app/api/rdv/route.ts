@@ -3,11 +3,18 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { prestation_id, travailleuse_id, debut, notes } = body as {
+  const {
+    prestation_id,
+    travailleuse_id,
+    debut,
+    notes,
+    reference_photo_url,
+  } = body as {
     prestation_id?: string;
     travailleuse_id?: string;
     debut?: string;
     notes?: string;
+    reference_photo_url?: string;
   };
 
   if (!prestation_id || !travailleuse_id || !debut) {
@@ -55,6 +62,7 @@ export async function POST(request: Request) {
       statut: "en_attente",
       prix_applique: prestation.prix,
       notes: notes ?? null,
+      reference_photo_url: reference_photo_url ?? null,
     })
     .select()
     .single();

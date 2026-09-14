@@ -3,16 +3,27 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Prestation } from "@/lib/types/database";
+import { createClient } from "@/lib/supabase/client";
 
-type Props = {
-  prestations: Prestation[];
+type Categorie = {
+  id: string;
+  nom: string;
+  parent_id: string | null;
+  ordre_affichage: number;
 };
+
+type PrestationAvecCat = Prestation & { categorie_id: string | null };
 
 type Travailleuse = {
   id: string;
   prenom: string;
   nom: string | null;
   categorie_id: string;
+};
+
+type Props = {
+  prestations: PrestationAvecCat[];
+  categories: Categorie[];
 };
 
 function formatDateFR(d: Date): string {
@@ -43,35 +54,101 @@ function getNextDays(n: number): Date[] {
   return days;
 }
 
-export function ReservationWizard({ prestations }: Props) {
+type Etape = "categorie" | "sous-categorie" | "prestation" | "travailleuse" | "creneau" | "confirmation";
+
+export function ReservationWizard({ prestations, categories }: Props) {
   const router = useRouter();
-  const [step, setStep] = useState(1);
+  const supabase = createClient();
 
-  // Étape 1
-  const [prestation, setPrestation] = useState<Prestation | null>(null);
+  const [etape, setEtape] = useState<Etape>("categorie");
 
-  // Étape 2
-  const [travailleuses, setTravailleuses] = useState<Travailleuse[]>([]);
-  const [loadingTravailleuses, setLoadingTravailleuses] = useState(false);
+  // Sélections
+  const [categoriePrincipale, setCategoriePrincipale] = useState<Categorie | null>(null);
+  const [sousCategorie, setSousCategorie] = useState<Categorie | null>(null);
+  const [prestation, setPrestation] = useState<PrestationAvecCat | null>(null);
   const [travailleuse, setTravailleuse] = useState<Travailleuse | null>(null);
-
-  // Étape 3
   const [date, setDate] = useState<Date | null>(null);
-  const [slots, setSlots] = useState<string[]>([]);
   const [slot, setSlot] = useState<string | null>(null);
+
+  // Chargement
+  const [travailleuses, setTravailleuses] = useState<Travailleuse[]>([]);
+  const [slots, setSlots] = useState<string[]>([]);
+  const [loadingTravailleuses, setLoadingTravailleuses] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Étape 4
+  // Confirmation
   const [notes, setNotes] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const days = getNextDays(14);
 
-  // === Étape 1 → 2 : Charger les travailleuses ===
-  async function choisirPrestation(p: Prestation) {
+  // Catégories principales
+  const principales = categories
+    .filter((c) => !c.parent_id)
+    .sort((a, b) => a.ordre_affichage - b.ordre_affichage);
+
+  // Vérifier si une catégorie a des sous-catégories
+  function getSousCategories(parentId: string): Categorie[] {
+    return categories
+      .filter((c) => c.parent_id === parentId)
+      .sort((a, b) => a.ordre_affichage - b.ordre_affichage);
+  }
+
+  // Prestations dans une catégorie (directement)
+  function getPrestationsDansCategorie(catId: string): PrestationAvecCat[] {
+    return prestations.filter((p) => p.categorie_id === catId);
+  }
+
+  // Prestations rattachées à une catégorie principale ou à ses sous-catégories
+  function getAllPrestationsPrincipale(principaleId: string): PrestationAvecCat[] {
+    const sousCats = getSousCategories(principaleId).map((c) => c.id);
+    const allCatIds = [principaleId, ...sousCats];
+    return prestations.filter(
+      (p) => p.categorie_id && allCatIds.includes(p.categorie_id)
+    );
+  }
+
+  // === Sélections ===
+
+  function choisirCategoriePrincipale(cat: Categorie) {
+    setCategoriePrincipale(cat);
+    setSousCategorie(null);
+    setPrestation(null);
+
+    const sousCats = getSousCategories(cat.id);
+    const prestasDirectes = getPrestationsDansCategorie(cat.id);
+    const prestasTotal = getAllPrestationsPrincipale(cat.id);
+
+    // Si la catégorie a des sous-catégories :
+    if (sousCats.length > 0) {
+      setEtape("sous-categorie");
+      return;
+    }
+
+    // Sinon si elle a des prestations directes → aller à la prestation
+    if (prestasDirectes.length > 0) {
+      setEtape("prestation");
+      return;
+    }
+
+    // Sinon rien à afficher
+    if (prestasTotal.length === 0) {
+      setError("Aucune prestation dans cette catégorie.");
+    }
+  }
+
+  function choisirSousCategorie(sub: Categorie | null) {
+    setSousCategorie(sub);
+    setPrestation(null);
+    setEtape("prestation");
+  }
+
+  async function choisirPrestation(p: PrestationAvecCat) {
     setPrestation(p);
-    setStep(2);
+    setEtape("travailleuse");
     setLoadingTravailleuses(true);
     setError(null);
     setTravailleuse(null);
@@ -92,16 +169,14 @@ export function ReservationWizard({ prestations }: Props) {
     }
   }
 
-  // === Étape 2 → 3 : Choisir la travailleuse ===
   function choisirTravailleuse(t: Travailleuse) {
     setTravailleuse(t);
-    setStep(3);
+    setEtape("creneau");
     setDate(null);
     setSlots([]);
     setSlot(null);
   }
 
-  // === Étape 3 : Charger les créneaux pour la travailleuse ===
   async function handleSelectDate(d: Date) {
     if (!prestation || !travailleuse) return;
     setDate(d);
@@ -127,13 +202,53 @@ export function ReservationWizard({ prestations }: Props) {
     }
   }
 
-  // === Étape 4 : Confirmer ===
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("La photo ne doit pas dépasser 5 MB");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setError("Seules les images sont acceptées");
+      return;
+    }
+    setError(null);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  function retirerPhoto() {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+  }
+
+  async function uploadPhoto(): Promise<string | null> {
+    if (!photoFile) return null;
+    const ext = photoFile.name.split(".").pop() ?? "jpg";
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from("references-rdv")
+      .upload(fileName, photoFile);
+    if (uploadError) throw new Error("Erreur upload photo : " + uploadError.message);
+    const { data: urlData } = supabase.storage
+      .from("references-rdv")
+      .getPublicUrl(fileName);
+    return urlData.publicUrl;
+  }
+
   async function handleConfirm() {
     if (!prestation || !travailleuse || !slot) return;
     setSubmitting(true);
     setError(null);
-
     try {
+      let photoUrl: string | null = null;
+      if (photoFile) photoUrl = await uploadPhoto();
+
       const res = await fetch("/api/rdv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,6 +257,7 @@ export function ReservationWizard({ prestations }: Props) {
           travailleuse_id: travailleuse.id,
           debut: slot,
           notes: notes.trim() || null,
+          reference_photo_url: photoUrl,
         }),
       });
       const json = await res.json();
@@ -154,26 +270,36 @@ export function ReservationWizard({ prestations }: Props) {
     }
   }
 
+  // === Rendu progression ===
+  const etapesActives: Etape[] = ["categorie"];
+  if (categoriePrincipale) {
+    if (getSousCategories(categoriePrincipale.id).length > 0) {
+      etapesActives.push("sous-categorie");
+    }
+    etapesActives.push("prestation", "travailleuse", "creneau", "confirmation");
+  }
+  const idx = etapesActives.indexOf(etape);
+
   return (
     <div className="max-w-3xl mx-auto">
       {/* Progression */}
-      <div className="flex items-center justify-center gap-2 mb-12">
-        {[1, 2, 3, 4].map((n) => (
-          <div key={n} className="flex items-center gap-2">
+      <div className="flex items-center justify-center gap-1 mb-12 flex-wrap">
+        {etapesActives.map((e, i) => (
+          <div key={e} className="flex items-center gap-1">
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs"
               style={{
-                background: step >= n ? "var(--accent)" : "#e5e5e5",
-                color: step >= n ? "white" : "#888",
+                background: idx >= i ? "var(--accent)" : "#e5e5e5",
+                color: idx >= i ? "white" : "#888",
               }}
             >
-              {n}
+              {i + 1}
             </div>
-            {n < 4 && (
+            {i < etapesActives.length - 1 && (
               <div
-                className="w-8 h-px"
+                className="w-5 h-px"
                 style={{
-                  background: step > n ? "var(--accent)" : "#e5e5e5",
+                  background: idx > i ? "var(--accent)" : "#e5e5e5",
                 }}
               />
             )}
@@ -187,30 +313,116 @@ export function ReservationWizard({ prestations }: Props) {
         </div>
       )}
 
-      {/* ÉTAPE 1 : Prestation */}
-      {step === 1 && (
+      {/* === ÉTAPE CATÉGORIE === */}
+      {etape === "categorie" && (
         <div>
           <h2 className="text-2xl font-light mb-2">
-            Quel soin souhaitez-vous ?
+            Quel type de soin ?
           </h2>
           <p className="text-sm mb-8" style={{ color: "var(--muted)" }}>
-            Sélectionnez une prestation pour continuer.
+            Choisissez une catégorie pour commencer.
+          </p>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {principales.map((cat) => {
+              const nbPrestas = getAllPrestationsPrincipale(cat.id).length;
+              if (nbPrestas === 0) return null;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => choisirCategoriePrincipale(cat)}
+                  className="p-5 rounded-2xl border border-neutral-200 bg-white hover:border-neutral-400 transition text-center"
+                >
+                  <p className="text-lg font-medium capitalize mb-1">
+                    {cat.nom}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>
+                    {nbPrestas} soin{nbPrestas > 1 ? "s" : ""}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* === ÉTAPE SOUS-CATÉGORIE === */}
+      {etape === "sous-categorie" && categoriePrincipale && (
+        <div>
+          <button
+            onClick={() => {
+              setEtape("categorie");
+              setCategoriePrincipale(null);
+            }}
+            className="text-sm mb-6 hover:opacity-60"
+            style={{ color: "var(--muted)" }}
+          >
+            ← Changer de catégorie
+          </button>
+
+          <h2 className="text-2xl font-light mb-2 capitalize">
+            {categoriePrincipale.nom} — quelle zone ?
+          </h2>
+          <p className="text-sm mb-8" style={{ color: "var(--muted)" }}>
+            Choisissez une sous-catégorie.
+          </p>
+
+          <div className="space-y-3">
+            {getSousCategories(categoriePrincipale.id).map((sub) => {
+              const nb = getPrestationsDansCategorie(sub.id).length;
+              if (nb === 0) return null;
+              return (
+                <button
+                  key={sub.id}
+                  onClick={() => choisirSousCategorie(sub)}
+                  className="w-full text-left p-5 rounded-2xl border border-neutral-200 bg-white hover:border-neutral-400 transition flex items-center justify-between"
+                >
+                  <span className="text-lg font-medium">{sub.nom}</span>
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>
+                    {nb} soin{nb > 1 ? "s" : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* === ÉTAPE PRESTATION === */}
+      {etape === "prestation" && categoriePrincipale && (
+        <div>
+          <button
+            onClick={() => {
+              if (getSousCategories(categoriePrincipale.id).length > 0) {
+                setEtape("sous-categorie");
+              } else {
+                setEtape("categorie");
+                setCategoriePrincipale(null);
+              }
+            }}
+            className="text-sm mb-6 hover:opacity-60"
+            style={{ color: "var(--muted)" }}
+          >
+            ← Retour
+          </button>
+
+          <h2 className="text-2xl font-light mb-2">Quel soin ?</h2>
+          <p className="text-sm mb-8" style={{ color: "var(--muted)" }}>
+            {categoriePrincipale.nom}
+            {sousCategorie ? ` › ${sousCategorie.nom}` : ""}
           </p>
 
           <div className="grid md:grid-cols-2 gap-4">
-            {prestations.map((p) => (
+            {(sousCategorie
+              ? getPrestationsDansCategorie(sousCategorie.id)
+              : getPrestationsDansCategorie(categoriePrincipale.id)
+            ).map((p) => (
               <button
                 key={p.id}
                 onClick={() => choisirPrestation(p)}
                 className="text-left p-5 rounded-2xl border bg-white transition hover:border-neutral-400"
                 style={{ borderColor: "#e5e5e5" }}
               >
-                <p
-                  className="text-xs uppercase tracking-wide mb-1"
-                  style={{ color: "var(--muted)" }}
-                >
-                  {p.categorie}
-                </p>
                 <h3 className="text-lg mb-1">{p.nom}</h3>
                 <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>
                   {p.duree_min} min
@@ -227,15 +439,11 @@ export function ReservationWizard({ prestations }: Props) {
         </div>
       )}
 
-      {/* ÉTAPE 2 : Travailleuse */}
-      {step === 2 && prestation && (
+      {/* === ÉTAPE TRAVAILLEUSE === */}
+      {etape === "travailleuse" && prestation && (
         <div>
           <button
-            onClick={() => {
-              setStep(1);
-              setTravailleuse(null);
-              setTravailleuses([]);
-            }}
+            onClick={() => setEtape("prestation")}
             className="text-sm mb-6 hover:opacity-60"
             style={{ color: "var(--muted)" }}
           >
@@ -277,17 +485,9 @@ export function ReservationWizard({ prestations }: Props) {
                   >
                     {t.prenom[0]?.toUpperCase()}
                   </div>
-                  <div>
-                    <p className="text-lg">
-                      {t.prenom} {t.nom ?? ""}
-                    </p>
-                    <p
-                      className="text-xs uppercase tracking-wide"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      {prestation.categorie}
-                    </p>
-                  </div>
+                  <p className="text-lg">
+                    {t.prenom} {t.nom ?? ""}
+                  </p>
                 </button>
               ))}
             </div>
@@ -295,16 +495,11 @@ export function ReservationWizard({ prestations }: Props) {
         </div>
       )}
 
-      {/* ÉTAPE 3 : Date + Créneau */}
-      {step === 3 && prestation && travailleuse && (
+      {/* === ÉTAPE CRÉNEAU === */}
+      {etape === "creneau" && prestation && travailleuse && (
         <div>
           <button
-            onClick={() => {
-              setStep(2);
-              setDate(null);
-              setSlots([]);
-              setSlot(null);
-            }}
+            onClick={() => setEtape("travailleuse")}
             className="text-sm mb-6 hover:opacity-60"
             style={{ color: "var(--muted)" }}
           >
@@ -354,16 +549,15 @@ export function ReservationWizard({ prestations }: Props) {
                 className="text-xs uppercase tracking-wide mb-3"
                 style={{ color: "var(--muted)" }}
               >
-                Créneaux disponibles avec {travailleuse.prenom}
+                Créneaux avec {travailleuse.prenom}
               </p>
-
               {loadingSlots ? (
                 <p className="text-sm mb-8" style={{ color: "var(--muted)" }}>
                   Chargement…
                 </p>
               ) : slots.length === 0 ? (
                 <p className="text-sm mb-8" style={{ color: "var(--muted)" }}>
-                  Aucun créneau disponible ce jour-là. Essayez une autre date.
+                  Aucun créneau disponible ce jour-là.
                 </p>
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-8">
@@ -388,7 +582,7 @@ export function ReservationWizard({ prestations }: Props) {
 
           <button
             disabled={!slot}
-            onClick={() => setStep(4)}
+            onClick={() => setEtape("confirmation")}
             className="w-full py-4 rounded-full text-white text-lg transition hover:opacity-90 disabled:opacity-30"
             style={{ background: "var(--accent)" }}
           >
@@ -397,15 +591,15 @@ export function ReservationWizard({ prestations }: Props) {
         </div>
       )}
 
-      {/* ÉTAPE 4 : Confirmation */}
-      {step === 4 &&
+      {/* === ÉTAPE CONFIRMATION === */}
+      {etape === "confirmation" &&
         prestation &&
         travailleuse &&
         date &&
         slot && (
           <div>
             <button
-              onClick={() => setStep(3)}
+              onClick={() => setEtape("creneau")}
               className="text-sm mb-6 hover:opacity-60"
               style={{ color: "var(--muted)" }}
             >
@@ -422,9 +616,7 @@ export function ReservationWizard({ prestations }: Props) {
                 <span>{prestation.nom}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span style={{ color: "var(--muted)" }}>
-                  Travailleuse
-                </span>
+                <span style={{ color: "var(--muted)" }}>Travailleuse</span>
                 <span>
                   {travailleuse.prenom} {travailleuse.nom ?? ""}
                 </span>
@@ -443,10 +635,6 @@ export function ReservationWizard({ prestations }: Props) {
                 <span style={{ color: "var(--muted)" }}>Heure</span>
                 <span>{formatTimeFR(slot)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span style={{ color: "var(--muted)" }}>Durée</span>
-                <span>{prestation.duree_min} min</span>
-              </div>
               <div className="flex justify-between text-sm pt-3 border-t border-neutral-100">
                 <span style={{ color: "var(--muted)" }}>Total</span>
                 <span
@@ -456,6 +644,50 @@ export function ReservationWizard({ prestations }: Props) {
                   {prestation.prix} DA
                 </span>
               </div>
+            </div>
+
+            <div className="mb-6 p-5 rounded-2xl border border-neutral-200 bg-white">
+              <label className="block text-sm font-medium mb-1">
+                📸 Photo du modèle souhaité{" "}
+                <span style={{ color: "var(--muted)", fontWeight: "normal" }}>
+                  (optionnel)
+                </span>
+              </label>
+              <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+                Envoyez une photo pour que la travailleuse vérifie si c&apos;est
+                réalisable.
+              </p>
+
+              {photoPreview ? (
+                <div className="flex items-start gap-4">
+                  <img
+                    src={photoPreview}
+                    alt="Aperçu"
+                    className="w-32 h-32 object-cover rounded-xl border border-neutral-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={retirerPhoto}
+                    className="text-xs px-3 py-1 rounded-full"
+                    style={{ background: "#fee2e2", color: "#b91c1c" }}
+                  >
+                    Retirer
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-neutral-300 rounded-xl cursor-pointer hover:border-neutral-400 transition">
+                  <span className="text-2xl mb-2">📷</span>
+                  <span className="text-sm" style={{ color: "var(--muted)" }}>
+                    Cliquez pour ajouter une photo
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePhotoChange}
+                  />
+                </label>
+              )}
             </div>
 
             <div className="mb-6">

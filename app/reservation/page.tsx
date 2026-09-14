@@ -8,6 +8,13 @@ import { ReservationWizard } from "./ReservationWizard";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type Categorie = {
+  id: string;
+  nom: string;
+  parent_id: string | null;
+  ordre_affichage: number;
+};
+
 export default async function ReservationPage() {
   const supabase = await createClient();
 
@@ -19,18 +26,18 @@ export default async function ReservationPage() {
     redirect("/connexion");
   }
 
-  // Utilise le client admin pour charger les prestations (bypass RLS)
   const admin = createAdminClient();
-  const { data: prestations, error } = await admin
+
+  const { data: prestations } = await admin
     .from("prestations")
     .select("*")
     .eq("actif", true)
     .order("ordre_affichage");
 
-  console.log("=== RESERVATION PAGE ===");
-  console.log("Prestations chargées:", prestations?.length ?? 0);
-  console.log("Erreur:", error?.message ?? "aucune");
-  console.log("========================");
+  const { data: categories } = await admin
+    .from("categories")
+    .select("id, nom, parent_id, ordre_affichage")
+    .order("ordre_affichage", { ascending: true });
 
   return (
     <main className="min-h-screen">
@@ -60,7 +67,14 @@ export default async function ReservationPage() {
           Prenez rendez-vous
         </h1>
 
-        <ReservationWizard prestations={(prestations ?? []) as Prestation[]} />
+        <ReservationWizard
+          prestations={
+            (prestations ?? []) as unknown as (Prestation & {
+              categorie_id: string | null;
+            })[]
+          }
+          categories={(categories ?? []) as Categorie[]}
+        />
       </section>
     </main>
   );

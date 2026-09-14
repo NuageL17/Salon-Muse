@@ -1,13 +1,66 @@
 import Link from "next/link";
 import { requireTravailleuse } from "@/lib/auth";
 import { DeconnexionTravailleuse } from "./DeconnexionTravailleuse";
+import { ActionsTravailleuse } from "@/components/rdv/ActionsTravailleuse";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type RdvTravailleuse = {
+  id: string;
+  debut: string;
+  fin: string;
+  statut: string;
+  prix_applique: number | null;
+  notes: string | null;
+  reference_photo_url: string | null;
+  clientes: {
+    prenom: string | null;
+    nom: string | null;
+    telephone: string | null;
+  } | null;
+  prestations: {
+    nom: string;
+    categorie: string | null;
+    duree_min: number;
+  } | null;
+};
+
+function formatDateHeure(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-FR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function badgeStatut(statut: string): {
+  label: string;
+  bg: string;
+  color: string;
+} {
+  switch (statut) {
+    case "confirme":
+      return { label: "Confirmé", bg: "#e8f5e9", color: "#2e7d32" };
+    case "termine":
+      return { label: "Terminé", bg: "#e3f2fd", color: "#1565c0" };
+    case "annule_salon":
+      return { label: "Annulé", bg: "#fee2e2", color: "#b91c1c" };
+    case "annule_cliente":
+      return { label: "Annulé (cliente)", bg: "#fee2e2", color: "#b91c1c" };
+    case "en_attente":
+    default:
+      return { label: "En attente", bg: "#fff8e1", color: "#a07900" };
+  }
+}
+
 export default async function TravailleusePage() {
   const { supabase, user, profile } = await requireTravailleuse();
 
+  // Nom de la catégorie
   let categorieNom = "Sans catégorie";
   if (profile?.categorie_id) {
     const { data: cat } = await supabase
@@ -18,21 +71,34 @@ export default async function TravailleusePage() {
     if (cat) categorieNom = cat.nom;
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
+  // RDV à venir (mêmes filtres que côté admin)
   const { data: rdvs } = await supabase
     .from("rendez_vous")
     .select(
-      "id, debut, fin, statut, notes, prestations (nom, duree_min), clientes:profiles!rendez_vous_cliente_id_fkey (prenom, nom, telephone)"
+      "id, debut, fin, statut, prix_applique, notes, reference_photo_url, clientes:profiles!rendez_vous_cliente_id_fkey (prenom, nom, telephone), prestations (nom, categorie, duree_min)"
     )
     .eq("praticienne_id", user.id)
-    .gte("debut", today.toISOString())
     .in("statut", ["en_attente", "confirme"])
+    .gte("debut", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
     .order("debut", { ascending: true });
 
-  const liste = rdvs ?? [];
+  // RDV annulés récents
+  const { data: rdvsAnnules } = await supabase
+    .from("rendez_vous")
+    .select(
+      "id, debut, fin, statut, prix_applique, notes, reference_photo_url, clientes:profiles!rendez_vous_cliente_id_fkey (prenom, nom, telephone), prestations (nom, categorie, duree_min)"
+    )
+    .eq("praticienne_id", user.id)
+    .in("statut", ["annule_salon", "annule_cliente"])
+    .gte("debut", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+    .order("debut", { ascending: false });
 
+  const liste = (rdvs ?? []) as unknown as RdvTravailleuse[];
+  const listeAnnules = (rdvsAnnules ?? []) as unknown as RdvTravailleuse[];
+
+  // Filtrer aujourd'hui
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -41,25 +107,16 @@ export default async function TravailleusePage() {
     return d >= today && d < tomorrow;
   });
 
-  function formatHeure(iso: string) {
-    return new Date(iso).toLocaleTimeString("fr-FR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("fr-FR", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-    });
-  }
+  // CA prévisionnel (RDV à venir non annulés)
+  const caPrevisionnel = liste.reduce(
+    (sum, r) => sum + (r.prix_applique ?? 0),
+    0
+  );
 
   return (
     <main className="min-h-screen">
       <header className="border-b border-neutral-200">
-        <nav className="mx-auto max-w-5xl flex items-center justify-between p-6">
+        <nav className="mx-auto max-w-6xl flex items-center justify-between p-6">
           <div>
             <Link href="/" className="text-xl font-medium tracking-wide">
               Salon Muse
@@ -72,19 +129,22 @@ export default async function TravailleusePage() {
         </nav>
       </header>
 
-      <section className="mx-auto max-w-5xl px-6 py-12">
+      <section className="mx-auto max-w-6xl px-6 py-12">
         <p
           className="text-sm tracking-[0.2em] uppercase mb-3"
           style={{ color: "var(--muted)" }}
         >
           Bonjour
         </p>
-        <h1 className="text-4xl font-light mb-2">{profile.prenom}</h1>
+        <h1 className="text-4xl font-light mb-2">
+          {profile.prenom} {profile.nom ?? ""}
+        </h1>
         <p className="text-sm mb-10" style={{ color: "var(--muted)" }}>
           Catégorie : <span className="font-medium">{categorieNom}</span>
         </p>
 
-        <div className="grid gap-4 md:grid-cols-3 mb-10">
+        {/* Stats */}
+        <div className="grid gap-4 md:grid-cols-4 mb-10">
           <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
             <p
               className="text-xs uppercase tracking-wide mb-1"
@@ -99,9 +159,23 @@ export default async function TravailleusePage() {
               className="text-xs uppercase tracking-wide mb-1"
               style={{ color: "var(--muted)" }}
             >
-              À venir (total)
+              À venir
             </p>
             <p className="text-3xl font-light">{liste.length}</p>
+          </div>
+          <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
+            <p
+              className="text-xs uppercase tracking-wide mb-1"
+              style={{ color: "var(--muted)" }}
+            >
+              CA prévisionnel
+            </p>
+            <p
+              className="text-3xl font-light"
+              style={{ color: "var(--accent-dark)" }}
+            >
+              {caPrevisionnel} DA
+            </p>
           </div>
           <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
             <p
@@ -114,110 +188,122 @@ export default async function TravailleusePage() {
           </div>
         </div>
 
-        <h2 className="text-xl font-light mb-4">
-          Mon planning d&apos;aujourd&apos;hui
-        </h2>
-        {rdvAujourdhui.length === 0 ? (
-          <div className="p-8 rounded-2xl border border-dashed border-neutral-300 text-center mb-10">
-            <p className="text-sm" style={{ color: "var(--muted)" }}>
-              Aucun rendez-vous aujourd&apos;hui.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3 mb-10">
-            {rdvAujourdhui.map((r) => {
-              const p = r.prestations as unknown as {
-                nom: string;
-                duree_min: number;
-              } | null;
-              const c = r.clientes as unknown as {
-                prenom: string | null;
-                nom: string | null;
-                telephone: string | null;
-              } | null;
-              return (
-                <div
-                  key={r.id}
-                  className="p-5 rounded-2xl border border-neutral-200 bg-white flex items-start justify-between gap-4"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="text-xs uppercase tracking-wide mb-1"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      {formatHeure(r.debut)} · {p?.duree_min} min
-                    </p>
-                    <h3 className="text-lg mb-1">{p?.nom}</h3>
-                    <p className="text-sm" style={{ color: "var(--muted)" }}>
-                      👤 {c?.prenom ?? "?"} {c?.nom ?? ""}
-                      {c?.telephone && ` · ${c.telephone}`}
-                    </p>
-                    {r.notes && (
-                      <p
-                        className="text-xs mt-2 italic"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        « {r.notes} »
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    className="text-xs px-2 py-1 rounded-full"
-                    style={{
-                      background:
-                        r.statut === "confirme" ? "#e8f5e9" : "#fff8e1",
-                      color:
-                        r.statut === "confirme" ? "#2e7d32" : "#a07900",
-                    }}
-                  >
-                    {r.statut === "confirme" ? "Confirmé" : "En attente"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <h2 className="text-xl font-light mb-4">
-          Tous mes rendez-vous à venir
-        </h2>
+        {/* Planning à venir */}
+        <h2 className="text-xl font-light mb-4">Mon planning à venir</h2>
         {liste.length === 0 ? (
-          <div className="p-8 rounded-2xl border border-dashed border-neutral-300 text-center">
+          <div className="p-8 rounded-2xl border border-dashed border-neutral-300 text-center mb-12">
             <p className="text-sm" style={{ color: "var(--muted)" }}>
               Aucun rendez-vous à venir.
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {liste.map((r) => {
-              const p = r.prestations as unknown as {
-                nom: string;
-                duree_min: number;
-              } | null;
-              const c = r.clientes as unknown as {
-                prenom: string | null;
-                nom: string | null;
-              } | null;
-              return (
-                <div
-                  key={r.id}
-                  className="p-4 rounded-xl border border-neutral-200 bg-white flex items-center justify-between gap-4"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{p?.nom}</p>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>
-                      {formatDate(r.debut)} à {formatHeure(r.debut)}
-                    </p>
-                  </div>
-                  <p className="text-sm" style={{ color: "var(--muted)" }}>
-                    {c?.prenom ?? ""} {c?.nom ?? ""}
-                  </p>
-                </div>
-              );
-            })}
+          <div className="space-y-3 mb-12">
+            {liste.map((rdv) => (
+              <RdvCarteTravailleuse key={rdv.id} rdv={rdv} />
+            ))}
           </div>
+        )}
+
+        {/* RDV annulés */}
+        {listeAnnules.length > 0 && (
+          <>
+            <h2
+              className="text-xl font-light mb-4"
+              style={{ color: "var(--muted)" }}
+            >
+              Annulés récemment
+            </h2>
+            <div className="space-y-3">
+              {listeAnnules.map((rdv) => (
+                <RdvCarteTravailleuse key={rdv.id} rdv={rdv} />
+              ))}
+            </div>
+          </>
         )}
       </section>
     </main>
+  );
+}
+
+function RdvCarteTravailleuse({ rdv }: { rdv: RdvTravailleuse }) {
+  const badge = badgeStatut(rdv.statut);
+  const estAnnule = ["annule_salon", "annule_cliente"].includes(rdv.statut);
+
+  return (
+    <div
+      className="p-5 rounded-2xl border border-neutral-200 bg-white"
+      style={{ opacity: estAnnule ? 0.6 : 1 }}
+    >
+      <div className="flex items-start justify-between gap-4">
+        {/* Date / durée */}
+        <div className="flex-shrink-0 w-32">
+          <p
+            className="text-xs uppercase tracking-wide"
+            style={{ color: "var(--muted)" }}
+          >
+            {formatDateHeure(rdv.debut)}
+          </p>
+          <p className="text-sm mt-1">{rdv.prestations?.duree_min} min</p>
+        </div>
+
+        {/* Détails + actions */}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-xs uppercase tracking-wide mb-1"
+            style={{ color: "var(--muted)" }}
+          >
+            {rdv.prestations?.categorie}
+          </p>
+          <h3 className="text-lg mb-1">
+            {rdv.prestations?.nom ?? "Prestation"}
+          </h3>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            👤 {rdv.clientes?.prenom ?? "?"} {rdv.clientes?.nom ?? ""}
+            {rdv.clientes?.telephone && ` · ${rdv.clientes.telephone}`}
+          </p>
+          {rdv.notes && (
+            <p
+              className="text-xs mt-2 italic"
+              style={{ color: "var(--muted)" }}
+            >
+              « {rdv.notes} »
+            </p>
+          )}
+          {rdv.reference_photo_url && (
+            <a
+              href={rdv.reference_photo_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-3"
+            >
+              <img
+                src={rdv.reference_photo_url}
+                alt="Référence"
+                className="w-24 h-24 object-cover rounded-xl border border-neutral-200 hover:opacity-80 transition"
+              />
+            </a>
+          )}
+          {!estAnnule && (
+            <ActionsTravailleuse rdvId={rdv.id} statut={rdv.statut} />
+          )}
+        </div>
+
+        {/* Prix + Statut */}
+        <div className="flex-shrink-0 text-right">
+          <p
+            className="text-lg font-medium mb-2"
+            style={{ color: "var(--accent-dark)" }}
+          >
+            {rdv.prix_applique} DA
+          </p>
+          <span
+            className="inline-block text-xs px-2 py-1 rounded-full"
+            style={{ background: badge.bg, color: badge.color }}
+          >
+            {badge.label}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
