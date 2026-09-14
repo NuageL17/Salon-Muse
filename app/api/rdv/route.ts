@@ -3,13 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { prestation_id, debut, notes } = body as {
+  const { prestation_id, travailleuse_id, debut, notes } = body as {
     prestation_id?: string;
+    travailleuse_id?: string;
     debut?: string;
     notes?: string;
   };
 
-  if (!prestation_id || !debut) {
+  if (!prestation_id || !travailleuse_id || !debut) {
     return NextResponse.json(
       { error: "Paramètres manquants" },
       { status: 400 }
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
     .from("rendez_vous")
     .insert({
       cliente_id: user.id,
+      praticienne_id: travailleuse_id,
       prestation_id,
       debut: debutDate.toISOString(),
       fin: finDate.toISOString(),

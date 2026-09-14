@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function InscriptionPage() {
-  const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,8 +41,8 @@ export default function InscriptionPage() {
       return;
     }
 
-    router.push("/mon-compte");
-    router.refresh();
+    // Rechargement complet vers l'accueil
+    window.location.href = "/";
   }
 
   return (
@@ -121,7 +119,8 @@ export default function InscriptionPage() {
               className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-white focus:outline-none focus:border-neutral-400 font-mono tracking-wider"
             />
             <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-              Si une amie vous a parrainée, collez son code ici pour gagner des points.
+              Si une amie vous a parrainée, collez son code ici pour gagner des
+              points.
             </p>
           </div>
 
@@ -155,7 +154,10 @@ export default function InscriptionPage() {
           </button>
         </form>
 
-        <p className="text-center text-sm mt-6" style={{ color: "var(--muted)" }}>
+        <p
+          className="text-center text-sm mt-6"
+          style={{ color: "var(--muted)" }}
+        >
           Déjà un compte ?{" "}
           <Link href="/connexion" className="underline">
             Se connecter

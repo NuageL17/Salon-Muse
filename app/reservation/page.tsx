@@ -1,8 +1,12 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Prestation } from "@/lib/types/database";
 import { ReservationWizard } from "./ReservationWizard";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function ReservationPage() {
   const supabase = await createClient();
@@ -15,11 +19,18 @@ export default async function ReservationPage() {
     redirect("/connexion");
   }
 
-  const { data: prestations } = await supabase
+  // Utilise le client admin pour charger les prestations (bypass RLS)
+  const admin = createAdminClient();
+  const { data: prestations, error } = await admin
     .from("prestations")
     .select("*")
     .eq("actif", true)
     .order("ordre_affichage");
+
+  console.log("=== RESERVATION PAGE ===");
+  console.log("Prestations chargées:", prestations?.length ?? 0);
+  console.log("Erreur:", error?.message ?? "aucune");
+  console.log("========================");
 
   return (
     <main className="min-h-screen">

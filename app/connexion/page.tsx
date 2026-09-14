@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ConnexionPage() {
-  const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,8 +29,27 @@ export default function ConnexionPage() {
       return;
     }
 
-    router.push("/mon-compte");
-    router.refresh();
+    // Laisse les cookies se propager
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Demander le rôle côté serveur (plus fiable)
+    let destination = "/";
+    try {
+      const res = await fetch("/api/auth/role", { cache: "no-store" });
+      const json = await res.json();
+
+      if (json.role === "gerante") {
+        destination = "/admin";
+      } else if (json.role === "travailleuse") {
+        destination = "/travailleuse";
+      } else {
+        destination = "/";
+      }
+    } catch {
+      destination = "/";
+    }
+
+    window.location.href = destination;
   }
 
   return (
@@ -50,7 +67,7 @@ export default function ConnexionPage() {
           className="text-sm text-center mb-10"
           style={{ color: "var(--muted)" }}
         >
-          Accédez à votre espace cliente.
+          Accédez à votre espace.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -90,7 +107,10 @@ export default function ConnexionPage() {
           </button>
         </form>
 
-        <p className="text-center text-sm mt-6" style={{ color: "var(--muted)" }}>
+        <p
+          className="text-center text-sm mt-6"
+          style={{ color: "var(--muted)" }}
+        >
           Pas encore de compte ?{" "}
           <Link href="/inscription" className="underline">
             Créer un compte

@@ -1,8 +1,12 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { AnnulerRdvButton } from "@/components/rdv/AnnulerRdvButton";
 import { ActiverPush } from "@/components/notifications/ActiverPush";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type RdvAvecPrestation = {
   id: string;
@@ -11,6 +15,10 @@ type RdvAvecPrestation = {
   statut: string;
   prix_applique: number | null;
   notes: string | null;
+  travailleuse: {
+    prenom: string | null;
+    nom: string | null;
+  } | null;
   prestations: {
     nom: string;
     categorie: string | null;
@@ -53,16 +61,18 @@ export default async function MonComptePage() {
     redirect("/connexion");
   }
 
-  const { data: profile } = await supabase
+  const admin = createAdminClient();
+
+  const { data: profile } = await admin
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .single();
 
-  const { data: rdvs } = await supabase
+  const { data: rdvs } = await admin
     .from("rendez_vous")
     .select(
-      "id, debut, fin, statut, prix_applique, notes, prestations (nom, categorie, duree_min)"
+      "id, debut, fin, statut, prix_applique, notes, travailleuse:profiles!rendez_vous_praticienne_id_fkey (prenom, nom), prestations (nom, categorie, duree_min)"
     )
     .eq("cliente_id", user.id)
     .in("statut", ["en_attente", "confirme", "en_cours"])
@@ -71,8 +81,8 @@ export default async function MonComptePage() {
 
   const prochains = (rdvs ?? []) as unknown as RdvAvecPrestation[];
 
-  // Parrainages : 2 requêtes séparées (jointure + profils filleuls)
-  const { data: parrainagesData } = await supabase
+  // Parrainages
+  const { data: parrainagesData } = await admin
     .from("parrainages")
     .select(
       "id, statut, created_at, valide_le, recompense_parrain, code_utilise, filleul_id"
@@ -82,7 +92,7 @@ export default async function MonComptePage() {
 
   const filleulIds = (parrainagesData ?? []).map((p) => p.filleul_id);
   const { data: profilsFilleuls } = filleulIds.length
-    ? await supabase
+    ? await admin
         .from("profiles")
         .select("id, prenom, nom")
         .in("id", filleulIds)
@@ -134,7 +144,6 @@ export default async function MonComptePage() {
           Bonjour {profile?.prenom ?? user.email}
         </h1>
 
-        {/* Prochains rendez-vous */}
         <div className="mb-12">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-light">Mes prochains rendez-vous</h2>
@@ -197,12 +206,16 @@ export default async function MonComptePage() {
                     {formatDateHeure(rdv.debut)} ·{" "}
                     {rdv.prestations?.duree_min} min
                   </p>
+                  <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+                    💅 Avec {rdv.travailleuse?.prenom ?? "—"}{" "}
+                    {rdv.travailleuse?.nom ?? ""}
+                  </p>
                   {rdv.prix_applique != null && (
                     <p
                       className="text-sm mt-2 font-medium"
                       style={{ color: "var(--accent-dark)" }}
                     >
-                      {rdv.prix_applique} €
+                      {rdv.prix_applique} DA
                     </p>
                   )}
                   {rdv.notes && (
@@ -220,7 +233,6 @@ export default async function MonComptePage() {
           )}
         </div>
 
-        {/* Mes filleuls */}
         <div className="mb-12">
           <h2 className="text-xl font-light mb-4">Mes filleuls</h2>
 
@@ -279,7 +291,6 @@ export default async function MonComptePage() {
           )}
         </div>
 
-        {/* Cartes profil + notifications */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="p-6 rounded-2xl border border-neutral-200 bg-white">
             <p

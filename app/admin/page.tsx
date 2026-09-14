@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireGerante } from "@/lib/auth";
 import { ActionsAdminRdv } from "@/components/rdv/ActionsAdminRdv";
 
@@ -13,6 +12,10 @@ type RdvAdmin = {
     prenom: string | null;
     nom: string | null;
     telephone: string | null;
+  } | null;
+  travailleuse: {
+    prenom: string | null;
+    nom: string | null;
   } | null;
   prestations: {
     nom: string;
@@ -53,18 +56,13 @@ function badgeStatut(statut: string): {
 export default async function AdminPage() {
   const { supabase } = await requireGerante();
 
-  const now = new Date().toISOString();
-
   const { data: rdvs, error } = await supabase
     .from("rendez_vous")
     .select(
-      "id, debut, fin, statut, prix_applique, notes, clientes:profiles!rendez_vous_cliente_id_fkey (prenom, nom, telephone), prestations (nom, categorie, duree_min)"
+      "id, debut, fin, statut, prix_applique, notes, clientes:profiles!rendez_vous_cliente_id_fkey (prenom, nom, telephone), travailleuse:profiles!rendez_vous_praticienne_id_fkey (prenom, nom), prestations (nom, categorie, duree_min)"
     )
     .in("statut", ["en_attente", "confirme", "annule_salon", "annule_cliente"])
-    .gte(
-      "debut",
-      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    )
+    .gte("debut", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
     .order("debut", { ascending: true });
 
   const liste = (rdvs ?? []) as unknown as RdvAdmin[];
@@ -92,113 +90,87 @@ export default async function AdminPage() {
   );
 
   return (
-    <main className="min-h-screen">
-      <header className="border-b border-neutral-200">
-        <nav className="mx-auto max-w-6xl flex items-center justify-between p-6">
-          <Link href="/" className="text-xl font-medium tracking-wide">
-            Salon Muse <span className="text-xs opacity-60">· Admin</span>
-          </Link>
-          <div className="flex items-center gap-6 text-sm">
-            <Link href="/admin/notifications" className="hover:opacity-60">
-              Notifications
-            </Link>
-            <Link href="/mon-compte" className="hover:opacity-60">
-              Mon espace
-            </Link>
-            <form action="/auth/signout" method="post">
-              <button type="submit" className="hover:opacity-60">
-                Déconnexion
-              </button>
-            </form>
-          </div>
-        </nav>
-      </header>
+    <section className="p-6 md:p-10 max-w-6xl mx-auto">
+      <p
+        className="text-sm tracking-[0.2em] uppercase mb-3"
+        style={{ color: "var(--muted)" }}
+      >
+        Tableau de bord
+      </p>
+      <h1 className="text-4xl font-light mb-10">Rendez-vous</h1>
 
-      <section className="mx-auto max-w-6xl px-6 py-12">
-        <p
-          className="text-sm tracking-[0.2em] uppercase mb-4"
-          style={{ color: "var(--muted)" }}
-        >
-          Tableau de bord
-        </p>
-        <h1 className="text-4xl font-light mb-10">Rendez-vous</h1>
-
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-3 mb-10">
-          <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
-            <p
-              className="text-xs uppercase tracking-wide mb-1"
-              style={{ color: "var(--muted)" }}
-            >
-              Aujourd&apos;hui
-            </p>
-            <p className="text-3xl font-light">{rdvAujourdhui.length}</p>
-          </div>
-          <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
-            <p
-              className="text-xs uppercase tracking-wide mb-1"
-              style={{ color: "var(--muted)" }}
-            >
-              À venir (total)
-            </p>
-            <p className="text-3xl font-light">{actifs.length}</p>
-          </div>
-          <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
-            <p
-              className="text-xs uppercase tracking-wide mb-1"
-              style={{ color: "var(--muted)" }}
-            >
-              CA prévisionnel
-            </p>
-            <p
-              className="text-3xl font-light"
-              style={{ color: "var(--accent-dark)" }}
-            >
-              {caPrevisionnel} €
-            </p>
-          </div>
+      <div className="grid gap-4 md:grid-cols-3 mb-10">
+        <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
+          <p
+            className="text-xs uppercase tracking-wide mb-1"
+            style={{ color: "var(--muted)" }}
+          >
+            Aujourd&apos;hui
+          </p>
+          <p className="text-3xl font-light">{rdvAujourdhui.length}</p>
         </div>
+        <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
+          <p
+            className="text-xs uppercase tracking-wide mb-1"
+            style={{ color: "var(--muted)" }}
+          >
+            À venir (total)
+          </p>
+          <p className="text-3xl font-light">{actifs.length}</p>
+        </div>
+        <div className="p-5 rounded-2xl border border-neutral-200 bg-white">
+          <p
+            className="text-xs uppercase tracking-wide mb-1"
+            style={{ color: "var(--muted)" }}
+          >
+            CA prévisionnel
+          </p>
+          <p
+            className="text-3xl font-light"
+            style={{ color: "var(--accent-dark)" }}
+          >
+            {caPrevisionnel} DA
+          </p>
+        </div>
+      </div>
 
-        {error && (
-          <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 mb-6">
-            {error.message}
-          </div>
-        )}
+      {error && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 mb-6">
+          {error.message}
+        </div>
+      )}
 
-        {/* RDV actifs */}
-        <h2 className="text-xl font-light mb-4">À venir</h2>
-        {actifs.length === 0 ? (
-          <div className="p-8 rounded-2xl border border-dashed border-neutral-300 text-center mb-12">
-            <p className="text-sm" style={{ color: "var(--muted)" }}>
-              Aucun rendez-vous à venir.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3 mb-12">
-            {actifs.map((rdv) => (
+      <h2 className="text-xl font-light mb-4">À venir</h2>
+      {actifs.length === 0 ? (
+        <div className="p-8 rounded-2xl border border-dashed border-neutral-300 text-center mb-12">
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            Aucun rendez-vous à venir.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 mb-12">
+          {actifs.map((rdv) => (
+            <RdvCarte key={rdv.id} rdv={rdv} />
+          ))}
+        </div>
+      )}
+
+      {annules.length > 0 && (
+        <>
+          <h2
+            className="text-xl font-light mb-4"
+            style={{ color: "var(--muted)" }}
+          >
+            Annulés récemment
+          </h2>
+          <div className="space-y-3">
+            {annules.map((rdv) => (
               <RdvCarte key={rdv.id} rdv={rdv} />
             ))}
           </div>
-        )}
-
-        {/* RDV annulés */}
-        {annules.length > 0 && (
-          <>
-            <h2
-              className="text-xl font-light mb-4"
-              style={{ color: "var(--muted)" }}
-            >
-              Annulés récemment
-            </h2>
-            <div className="space-y-3">
-              {annules.map((rdv) => (
-                <RdvCarte key={rdv.id} rdv={rdv} />
-              ))}
-            </div>
-          </>
-        )}
-      </section>
-    </main>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -212,7 +184,6 @@ function RdvCarte({ rdv }: { rdv: RdvAdmin }) {
       style={{ opacity: estAnnule ? 0.6 : 1 }}
     >
       <div className="flex items-start justify-between gap-4">
-        {/* Date / heure */}
         <div className="flex-shrink-0 w-32">
           <p
             className="text-xs uppercase tracking-wide"
@@ -223,7 +194,6 @@ function RdvCarte({ rdv }: { rdv: RdvAdmin }) {
           <p className="text-sm mt-1">{rdv.prestations?.duree_min} min</p>
         </div>
 
-        {/* Détails + actions */}
         <div className="flex-1 min-w-0">
           <p
             className="text-xs uppercase tracking-wide mb-1"
@@ -235,8 +205,12 @@ function RdvCarte({ rdv }: { rdv: RdvAdmin }) {
             {rdv.prestations?.nom ?? "Prestation"}
           </h3>
           <p className="text-sm" style={{ color: "var(--muted)" }}>
-            {rdv.clientes?.prenom ?? "?"} {rdv.clientes?.nom ?? ""}
+            👤 {rdv.clientes?.prenom ?? "?"} {rdv.clientes?.nom ?? ""}
             {rdv.clientes?.telephone && ` · ${rdv.clientes.telephone}`}
+          </p>
+          <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+            💅 {rdv.travailleuse?.prenom ?? "Non assignée"}{" "}
+            {rdv.travailleuse?.nom ?? ""}
           </p>
           {rdv.notes && (
             <p
@@ -251,13 +225,12 @@ function RdvCarte({ rdv }: { rdv: RdvAdmin }) {
           )}
         </div>
 
-        {/* Prix + Statut */}
         <div className="flex-shrink-0 text-right">
           <p
             className="text-lg font-medium mb-2"
             style={{ color: "var(--accent-dark)" }}
           >
-            {rdv.prix_applique} €
+            {rdv.prix_applique} DA
           </p>
           <span
             className="inline-block text-xs px-2 py-1 rounded-full"
